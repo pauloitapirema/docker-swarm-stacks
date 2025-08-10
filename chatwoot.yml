@@ -1,0 +1,130 @@
+# Esta stack foi gerada com dados sensíveis removidos e substituídos
+# por variáveis de ambiente para publicação segura no GitHub.
+
+# ANTES DE USAR:
+# Crie um arquivo .env com as variáveis de ambiente abaixo ou defina-as
+# no seu ambiente de produção.
+# Exemplo:
+# POSTGRES_PASSWORD=sua_senha_segura
+# CHATWOOT_FRONTEND_URL=https://app.seu-dominio.com.br
+#
+# Para gerar chaves seguras, você pode usar o comando 'rake secret'.
+
+version: "3.8"
+
+x-base: &base
+  image: chatwoot/chatwoot:v4.4.0
+  restart: 'no'
+  command: echo 'OK'
+  environment:
+    # Configurações básicas
+    ENABLE_ACCOUNT_SIGNUP: "false"
+    DEFAULT_LOCALE: 'pt_BR'
+    INSTALLATION_ENV: docker
+    NODE_ENV: production
+    RAILS_ENV: production
+    DISABLE_TELEMETRY: "true"
+
+    # Banco de dados
+    POSTGRES_HOST: postgresql
+    POSTGRES_USERNAME: postgres
+    # ATENÇÃO: Substitua 'SUA_SENHA_POSTGRES' pela sua senha real.
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    POSTGRES_DATABASE: chatwoot
+    # A URL do banco de dados usa a variável de senha
+    DATABASE_URL: "postgresql://postgres:${POSTGRES_PASSWORD}@postgresql:5432/chatwoot"
+
+    # Redis
+    REDIS_URL: redis://redis:6379/0
+
+    # Secrets
+    # ATENÇÃO: Estas chaves devem ser geradas de forma segura e mantidas em segredo.
+    SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE}
+    RAILS_MASTER_KEY: ${RAILS_MASTER_KEY}
+
+    # URL e domínio
+    # ATENÇÃO: Substitua por sua URL e domínio reais.
+    FRONTEND_URL: ${CHATWOOT_FRONTEND_URL}
+    MAILER_INBOUND_EMAIL_DOMAIN: ${CHATWOOT_MAIL_DOMAIN}
+
+    # Configurações de e-mail (atualizadas para v4.x)
+    # ATENÇÃO: Substitua por suas credenciais de e-mail reais.
+    MAILER_SENDER_EMAIL: ${CHATWOOT_MAILER_EMAIL}
+    SMTP_ADDRESS: ${SMTP_ADDRESS}
+    SMTP_PORT: ${SMTP_PORT}
+    SMTP_USERNAME: ${SMTP_USERNAME}
+    SMTP_PASSWORD: ${SMTP_PASSWORD}
+    SMTP_AUTHENTICATION: login
+    SMTP_ENABLE_STARTTLS_AUTO: "true"
+    SMTP_TLS: "true"
+    SMTP_OPENSSL_VERIFY_MODE: peer
+
+    # Novas variáveis recomendadas para v4.x
+    ACTIVE_STORAGE_SERVICE: local
+    FORCE_SSL: "false"
+    ENABLE_GOOGLE_OAUTH: "false"
+    ENABLE_GITHUB_OAUTH: "false"
+    ENABLE_FACEBOOK_OAUTH: "false"
+
+  networks:
+    # ATENÇÃO: Substitua 'SEU_NOME_DE_REDE' pelo nome da sua rede Docker real.
+    - ${NETWORK_NAME}
+
+services:
+  migrate:
+    <<: *base
+    restart: "no"
+    deploy:
+      replicas: 0
+      restart_policy:
+        condition: none
+    command: ['bundle', 'exec', 'rails', 'db:migrate']
+
+  chatwoot:
+    <<: *base
+    command: ['bundle', 'exec', 'rails', 's', '-p', '3000', '-b', '0.0.0.0']
+    restart: always
+    networks:
+      - ${NETWORK_NAME}
+    volumes:
+      - chatwoot_assets:/app/public
+      - chatwoot_storage:/app/storage
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      labels:
+        - traefik.enable=true
+        # ATENÇÃO: Substitua 'SUA_URL_DOMINIO' pela sua URL real.
+        - traefik.http.routers.chatwoot.rule=Host(`${CHATWOOT_FRONTEND_URL_HOST}`)
+        - traefik.http.routers.chatwoot.entrypoints=websecure
+        - traefik.http.routers.chatwoot.tls.certresolver=letsencryptresolver
+        - traefik.http.services.chatwoot.loadbalancer.server.port=3000
+        - traefik.http.services.chatwoot.loadbalancer.passHostHeader=true
+        # ATENÇÃO: Substitua 'SUA_URL_DOMINIO' pela sua URL real.
+        - traefik.http.routers.chatwoot-ws.rule=Host(`${CHATWOOT_FRONTEND_URL_HOST}`) && PathPrefix(`/cable`)
+
+  chatwoot_worker:
+    <<: *base
+    command: ['bundle', 'exec', 'sidekiq', '-C', 'config/sidekiq.yml']
+    restart: always
+    networks:
+      - ${NETWORK_NAME}
+    volumes:
+      - chatwoot_assets:/app/public
+      - chatwoot_storage:/app/storage
+
+volumes:
+  chatwoot_assets:
+    external: true
+    name: chatwoot_assets
+  chatwoot_storage:
+    name: chatwoot_storage
+
+networks:
+  # ATENÇÃO: Substitua 'SEU_NOME_DE_REDE' pelo nome da sua rede Docker real.
+  ${NETWORK_NAME}:
+    external: true
+    name: ${NETWORK_NAME}
